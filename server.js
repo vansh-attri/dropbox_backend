@@ -23,6 +23,11 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
+// Add a health check endpoint that Render can use to verify the service is running
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok', message: 'Server is running' });
+});
+
 // Routes
 const authRoutes = require('./routes/auth');
 const fileRoutes = require('./routes/files');
@@ -63,24 +68,38 @@ const getLocalIpAddress = () => {
   return '0.0.0.0'; // Fallback
 };
 
-// Connect to MongoDB
-const PORT = process.env.PORT || 5000;
+// Connect to MongoDB and start server
+const PORT = process.env.PORT || 10000;
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/dropbox-clone';
 
-mongoose
-  .connect(MONGODB_URI, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-  })
-  .then(() => {
-    console.log('Connected to MongoDB');
-    app.listen(PORT, '0.0.0.0', () => {
-      const localIp = getLocalIpAddress();
-      console.log(`Server running on port ${PORT}`);
-      console.log(`Access locally via: http://localhost:${PORT}`);
-      console.log(`Access from other devices on the same network via: http://${localIp}:${PORT}`);
+// Start server first, then connect to MongoDB
+const server = app.listen(PORT, '0.0.0.0', () => {
+  const localIp = getLocalIpAddress();
+  console.log(`Server running on port ${PORT}`);
+  console.log(`Access locally via: http://localhost:${PORT}`);
+  console.log(`Access from other devices on the same network via: http://${localIp}:${PORT}`);
+  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  
+  // Connect to MongoDB after server is running
+  mongoose
+    .connect(MONGODB_URI, {
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+    })
+    .then(() => {
+      console.log('Connected to MongoDB');
+    })
+    .catch((err) => {
+      console.error('MongoDB connection error:', err);
+      // Don't exit the process - keep the server running even if DB connection fails
+      console.log('Server will continue running without database connection');
     });
-  })
-  .catch((err) => {
-    console.error('MongoDB connection error:', err);
+});
+
+// Handle server shutdown gracefully
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received, shutting down gracefully');
+  server.close(() => {
+    console.log('Process terminated');
   });
+});
